@@ -1,0 +1,312 @@
+		     +--------------------------+
+       	     |		    CS 2043		    |
+		     | PROJECT 2: USER PROGRAMS	|
+		     | 	   DESIGN DOCUMENT     	|
+		     +--------------------------+
+
+---- GROUP 36 ----
+
+S.Thanikan <thanikan.20@cse.mrt.ac.lk>
+K.Thivaharan <.thivaharan.20@cse.mrt.ac.lk>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+			   ARGUMENT PASSING
+			   ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+z
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  
+>> How do you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+Argument passing implementation:
+
+In the implementation of argument parsing, the arguments are passed to the main function in the form of an array of strings (argv[]). 
+The first element of this array is the name of the program being executed, while the subsequent elements are the arguments passed to the program.
+
+To arrange the elements of argv[] in the right order, we used a loop to iterate through the array and extract each argument. 
+The extracted argument is then stored in a variable for later use.
+
+To avoid overflowing the stack page, we used a dynamic memory allocation technique. 
+Instead of storing the arguments on the stack, we dynamically allocated memory for each argument using the malloc function. 
+This ensures that the amount of memory used is proportional to the number of arguments being passed, and not fixed to a maximum size. 
+This helps to avoid stack overflow errors.
+
+Arraneging elements of argv[] to be in right order:
+
+The arguments in argv[] are arranged in the right order by parsing the command line input string and breaking it into individual arguments based on whitespaces. 
+The first argument is stored in argv[0] and is typically the name of the executable program, followed by any additional arguments in the order they were provided in the command line input string. 
+These additional arguments are stored in argv[1], argv[2], and so on. 
+To achieve this, the code can use a combination of string functions such as strtok() or strsep() to split the input string into individual arguments, and then store these arguments in the argv[] array.
+
+
+Avoid overflowing of stack page:
+
+When a stack page overflow occurs, the thread immediately terminates with a status of -1 
+after determining whether the size of the arguments is large enough to cause an overflow. 
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+In contrast to strtok r, which uses a save ptr that is supplied externally and 
+can work on two strings in parallel using these externally passed pointers, 
+strtok saves a static global pointer that it will reuse the next time 
+the function is called with NULL as the first parameter. 
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+1.The kernel spends less time performing work that can be done in user space
+Unix shell recognizes itself as a userprogram, it seems more logical that it 
+can separate arguments from the desired userprog name/path before passing it to the kernel,
+which has no use at all in treating the userprog's name and arguments as a single entity. 
+As a result, by using the Unix systems approach, the kernel spends less time performing work that can be done in user space.
+
+2. Using the shell allows for the potential failure of the passed userprog to be checked 
+before passing arguments to the kernel. For instance, by checking to see if the ELF binary
+already exists before passing its name and path, this approach tries to minimize kernel exceptions and failures. 
+
+			     SYSTEM CALLS
+			     ============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+
+ struct process
+ {
+   pid_t pid;                           /* PID used to identify a process. */
+   struct list files;                   /* List of files opened by this process. */
+
+   struct list children_processes;      /* List of children processes which are added whenever
+                                           this process invokes an 'exec' system call. */
+   struct list_elem elem;               /* List element used to add this process in its parent's
+                                           children processes list. */
+   struct list_elem allelem;            /* List element used to add this process in list of all
+                                           processes in the system. */
+   struct file *executable;             /* ELF binary file of this process. */
+ };
+
+struct child_status 
+{
+  tid_t child_id;
+  bool is_exit_called;
+  bool has_been_waited;
+  int child_exit_status;
+  struct list_elem elem_child_status;
+};
+
+
+ struct waiting_process
+ {
+   char *signature;            /* Signature to receive a message with. */
+   struct semaphore sema;      /* Semaphore used to make processes wait on whenever they try to
+                                  receive a message that is not yet put in list. */
+   struct list_elem elem;
+ };
+
+ /* A process waiting for a message to be sent to the IPC module waits on a semaphore,
+    gets awakened whenever the message is sent. */
+
+ struct message
+ {
+   char *signature;            /* Signature that differentiates a message from other messages,
+                                  (should always be unique). */
+   int data;                   /* Data to be sent with the previously mentioned signature. */
+   struct list_elem elem;
+ };
+
+ struct file_elem
+ {
+   int fid;                              /* Unique ID for this file. */
+   void* data;                           /* Actual data of file this element holds. */
+   struct list_elem elem;                /* List element used to add this file to list of
+                                            process' open files. */
+ };
+
+
+ 
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+File descriptors are unique whithin the entire OS. Through
+approach we can avoid storing too much information per process
+and reduce perfomance overhead.
+
+---- ALGORITHMS ----
+
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+First verify that all pointers are less than the PHYS_BASE address, 
+then access  memory when an invalid access (null pointer, pointer to kernel address space, or  other invalid memory operation) 
+is performed will issue a page fault, call the page fault handler, reset the register, and set EAX  to -1. 
+If the kernel encounters an invalid access, the process is forwarded to the next instruction using his EIP register.
+
+After checking that all pointers are valid,  subsequent calls to  read or write the file system are issued, 
+and file system locks are used to ensure that parallel reads or writes are synchronized. 
+This lock is released before reading  or writing the file. Save the retrieved filesystem and free it after the operation. 
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+The minimum number is 1. This means that the checked data is stored exactly on her one page.
+The pointer returned by pagdir_get_page is sufficient to retrieve the entire stored data without further checking.
+
+The maximum number is 4096 and the checked data is spread over 4096 pages at the byte size level, 
+so pagedir_get_page is called once per byte.
+
+For 2 bytes of data, the minimum number is 1.
+2 bytes are on the same page. Maximum number is 2.
+The two bytes are on separate pages.
+
+Searching twice on two pages is unavoidable, so there is no room for improvement. 
+
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+process_wait is interlinked with wait() system call.
+wait() system call further calls process_wait.
+
+In process_wait, we used tid to retrieve relevant child element
+from children's list of the current thread.
+
+If there is no child element, we return -1.
+
+Then current thread's waiton_child is set to the passed tid.
+
+Current thread checks child element's used value, if it is not 1 
+(i.e. no child process has yet placed a return value in this elem,
+current thread sleeps.
+
+When woken up by child process (when it exits), we retrieve return
+value from child elem i.e child->ret_val, remove child from children 
+list, free child elem's memory and return return retrieved ret value.
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+Using code provided in get_user, put_user functions, every pointer is checked for referencing a valid address,
+logic is separated in separate validation functions used in syscall.c, a process that references an invalid address is killed.
+
+Before issuing process to exit, its allocated resources are freed accordingly, its open files are closed ..etc,
+after all the procedures are done, a call to exit is made with status -1, indicating an error.
+
+---- SYNCHRONIZATION ----
+
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+Parent sleeps by using a semaphore while waiting for the child process to put a message
+in IPC buffers with the signature "exec $process_tid," which in turn wakes up parent process
+and gives it the message indicating whether the child process loaded successfully or not. 
+This is done using an IPC mechanism that is provided in ipc.c and is similar to wait.
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
+
+P sleeps in IPC using a semaphore, waiting for child process to put its message in IPC with the same signature, 
+which in turn wakes up the parent process, process wakes up, removes itself from list of waiting processes, 
+and gets child's exiting status. When P waits for process C, it puts a request in IPC with the signature "exit $child_pid." 
+This means that it waits for child process to put a message in IPC that contains its exiting In the second scenario,
+ when P waits for C after it has exited, IPC uses semaphore to block the process if it finds a message with the specified signature in its mail. 
+ If child C exits before process P does, process P does not block; instead, it immediately receives child's exiting status.
+
+When process P terminates without waiting, it releases its resources normally, including its children list and dynamically allocated resources. 
+However, there are two situations that can occur: first, when process P exits before process C does, and second, when it exits after C does. 
+In both of these situations, a message sent by child C is sent to no one because the parent will not receive it,
+ and nothing happens in either of these situations.
+
+---- RATIONALE ----
+
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+
+Implemented memory access using the put_user and get_user functions, which make use of the CPU's memory management unit. 
+This allows for quicker checks for address validity and is a common practice in real-world operating systems such as Linux.
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+The retrieval of a file that corresponds to a fid takes O(n), where n is the number of opened files for this process, 
+and file descriptors are lightweight and simple, requiring no record of the file's state. 
+They can be easily adjusted, duplicated, or changed throughout the entire process.
+
+
+In contrast, if a process repeatedly opens the same file, the file entry is duplicated and added each time.
+ These duplicates can be avoided by determining whether the required operation requires a duplicate file entry. 
+ Additionally, fid can be more susceptible to overflow than fid allocated per process because it is allocated for the entire OS.
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+ Implementation was unchanged.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?
